@@ -10,3 +10,4 @@ futures = "0.3.34"
 harmonia-file-nar = { git = "https://github.com/nix-community/harmonia.git", version = "3.3.0" }
 reqwest = "0.13.5"
 tokio = { version = "1.54.1", features = ["io-uring"] }
+tokio-util = { version = "0.7.20", features = ["io"] }
