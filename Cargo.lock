@@ -288,6 +288,7 @@ name = "cranar"
 version = "0.1.0"
 dependencies = [
  "async-compression",
+ "bstr",
  "futures",
  "harmonia-file-nar",
  "reqwest",
