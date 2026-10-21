@@ -9,6 +9,7 @@ let
     lib
     pkg-config
     zstd
+    aws-lc
     ;
 in
 rustPlatform.buildRustPackage {
@@ -32,11 +33,20 @@ rustPlatform.buildRustPackage {
 
   buildInputs = [
     zstd
+    aws-lc
   ];
 
-  env.ZSTD_SYS_USE_PKG_CONFIG = true;
+  env = {
+    ZSTD_SYS_USE_PKG_CONFIG = true;
+    AWS_LC_SYS_USE_SYSTEM = true;
+  };
 
-  cargoLock.lockFile = ./Cargo.lock;
+  cargoLock = {
+    lockFile = ./Cargo.lock;
+    outputHashes = {
+      "harmonia-file-core-3.3.0" = "sha256-VjMsfiUZiujmUQvn+AtctXM0CQVmYyX4hFTHrsA3M7o=";
+    };
+  };
 
   meta = {
     license = lib.licenses.blueOak100;

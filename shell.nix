@@ -12,7 +12,10 @@ mkShell {
     cranar
   ];
 
-  env.ZSTD_SYS_USE_PKG_CONFIG = true;
+  env = {
+    ZSTD_SYS_USE_PKG_CONFIG = true;
+    AWS_LC_SYS_USE_SYSTEM = true;
+  };
 
   packages = with pkgs; [
     clippy
