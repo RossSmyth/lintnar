@@ -12,6 +12,8 @@ mkShell {
     cranar
   ];
 
+  env.ZSTD_SYS_USE_PKG_CONFIG = true;
+
   packages = with pkgs; [
     clippy
     rust-analyzer
