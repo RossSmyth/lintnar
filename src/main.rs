@@ -2,7 +2,7 @@ use std::pin::pin;
 
 use async_compression::tokio::bufread::ZstdDecoder;
 use bstr::{ByteSlice, ByteVec};
-use futures::{AsyncRead, StreamExt, TryStreamExt};
+use futures::{StreamExt, TryStreamExt};
 use harmonia_file_nar::{NarEvent, parse_nar};
 use reqwest::{Client, Response};
 use tokio_util::{
@@ -64,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = &reqwest::Client::new();
 
     let found = futures::stream::iter(store_paths)
-        .map(|digest| async move {
+        .map(async move |digest| {
             println!("{digest}\n");
             let narinfo = match get_narinfo(client, &digest).await {
                 Ok(res) => res.text().await.unwrap(),
@@ -100,7 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Then call the scanning function.
             let mut parse_events = pin!(parse_nar(decompressed_bytes));
 
-            let mut nar_finds: Vec<usize> = vec![];
+            let mut nar_finds: Vec<Bytes> = vec![];
 
             while let Some(event) = parse_events.try_next().await.unwrap() {
                 if let NarEvent::File {
@@ -110,10 +110,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     size,
                 } = event
                 {
-                    if let Some((_, found)) =
-                        scanner(name, executable, size, Box::new(reader)).await
+                    if let Some(_) = scanner(name.clone(), executable, size, Box::new(reader)).await
                     {
-                        nar_finds.extend_from_slice(&found);
+                        nar_finds.push(name);
                     }
                 }
             }
@@ -129,11 +128,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 // Yeah scan that file. Do ur stuff.
 async fn scanner(
-    name: Bytes,
+    _: Bytes,
     executable: bool,
     _: u64,
     reader: Box<dyn tokio::io::AsyncBufRead>,
-) -> Option<(Bytes, Vec<usize>)> {
+) -> Option<Vec<usize>> {
     if !executable {
         return None;
     }
@@ -156,9 +155,5 @@ async fn scanner(
         }
     }
 
-    if !found.is_empty() {
-        Some((name, found))
-    } else {
-        None
-    }
+    if !found.is_empty() { Some(found) } else { None }
 }
