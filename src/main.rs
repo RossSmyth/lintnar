@@ -110,7 +110,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Get the compression type
             let compression = get_nar_compression(&narinfo);
-            assert_eq!(compression, "zstd", "Only supports zstd right now");
+            if compression != "zstd" {
+                let _ = stderr_tx.send(format!("Failed: Not zstd, {name}\n")).await;
+
+                return vec![];
+            }
 
             // Actually get the nar archive. I want to move this to function
             // but async types make me sad.
