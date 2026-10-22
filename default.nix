@@ -13,7 +13,7 @@ let
     ;
 in
 rustPlatform.buildRustPackage {
-  pname = "cranar";
+  pname = "lintnar";
   version = "0.1.0";
 
   __strucutredAttrs = true;

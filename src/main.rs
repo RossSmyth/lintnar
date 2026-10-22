@@ -1,6 +1,5 @@
 use std::pin::pin;
 
-use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
 use async_compression::tokio::bufread::ZstdDecoder;
 use bstr::{ByteSlice, ByteVec};
 use futures::{AsyncRead, StreamExt, TryStreamExt};
