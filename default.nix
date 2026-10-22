@@ -10,6 +10,7 @@ let
     pkg-config
     zstd
     aws-lc
+    hyperscan
     ;
 in
 rustPlatform.buildRustPackage {
@@ -34,6 +35,7 @@ rustPlatform.buildRustPackage {
   buildInputs = [
     zstd
     aws-lc
+    hyperscan
   ];
 
   env = {
@@ -44,7 +46,7 @@ rustPlatform.buildRustPackage {
   cargoLock = {
     lockFile = ./Cargo.lock;
     outputHashes = {
-      "harmonia-file-core-3.3.0" = "sha256-VjMsfiUZiujmUQvn+AtctXM0CQVmYyX4hFTHrsA3M7o=";
+      "harmonia-file-core-3.3.0" = "sha256-sJzjr2074ecIZQazleb1yTpbU2o+gYW6P5FYu9W2M0E=";
     };
   };
 
