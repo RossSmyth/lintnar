@@ -65,6 +65,12 @@ fn get_nar_filesize(narinfo: &str) -> &str {
         .unwrap()
 }
 
+enum Diagnostic {
+    Start(String),
+    Finish(String),
+    Error(String, String),
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stdin = std::io::stdin().lock();
@@ -85,13 +91,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     // For sending stuff to stderr
-    let (ref stderr_tx, mut stderr_rx) = mpsc::channel::<String>(16);
+    let (ref stderr_tx, mut stderr_rx) = mpsc::channel::<Diagnostic>(16);
 
     // Little worker task that just writes stuff to stdout in a coherent manner
     tokio::spawn(async move {
         let mut output = tokio::io::stderr();
         while let Some(mess) = stderr_rx.recv().await {
-            let _ = output.write_all(mess.as_bytes()).await;
+            let jsonl;
+            match mess {
+                Diagnostic::Start(name) => {
+                    // { message: "start", path: "..." }
+                    jsonl = format!(r##"{{"message": "start", "path": "{}"}}"##, name);
+                }
+                Diagnostic::Finish(name) => {
+                    // { message: "start", path: "..." }
+                    jsonl = format!(r##"{{"message": "finish", "path": "{}"}}"##, name);
+                }
+                Diagnostic::Error(name, message) => {
+                    // { message: "error", "path": "...", "error": "..." }
+                    jsonl = format!(
+                        r##"{{"message": "error", "path": "{}", "error": {}}}"##,
+                        name, message
+                    );
+                }
+            }
+            let _ = output.write_all((jsonl + "\n").as_bytes()).await;
         }
     });
 
@@ -118,7 +142,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Name for the store paths and output diagnostics
             let name = get_nar_name(&narinfo);
-            let _ = stderr_tx.send(format!("Starting: {name}\n")).await;
+            let _ = stderr_tx.send(Diagnostic::Start(name.to_string())).await;
 
             // Get the nar path
             let url = get_nar_url(&narinfo);
@@ -126,7 +150,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Get the compression type
             let compression = get_nar_compression(&narinfo);
             if compression != "zstd" {
-                let _ = stderr_tx.send(format!("Failed: Not zstd, {name}\n")).await;
+                let _ = stderr_tx
+                    .send(Diagnostic::Error(name.to_string(), "not zstd".to_string()))
+                    .await;
 
                 return vec![];
             }
@@ -189,7 +215,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            let _ = stderr_tx.send(format!("Finished: {name}\n")).await;
+            let _ = stderr_tx.send(Diagnostic::Finish(name.to_string())).await;
             nar_finds
         })
         .buffer_unordered(std::thread::available_parallelism().unwrap().get());
