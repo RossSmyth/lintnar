@@ -7,7 +7,7 @@ use std::{
 };
 
 use async_compression::tokio::bufread::ZstdDecoder;
-use bstr::{ByteSlice, ByteVec};
+use bstr::{ByteSlice, ByteVec, io::BufReadExt};
 use futures::{StreamExt, TryStreamExt};
 use harmonia_file_nar::{NarEvent, parse_nar};
 use hyperscan::{Builder, DatabaseRef, Matching, StreamingDatabase, StreamingMode, pattern};
@@ -67,23 +67,22 @@ fn get_nar_filesize(narinfo: &str) -> &str {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let stdin = std::io::stdin().lock();
+
     // All arguments should be store paths.
-    let store_paths = std::env::args_os()
-        .skip(1) // Skip arv0 since it's useless here
-        .map(|path| {
-            let mut path = path.into_encoded_bytes();
+    let store_paths = stdin.byte_lines().flatten().map(|mut path| {
+        // Remove the store path prefix
+        path = path.replace(STORE_PATH, "");
 
-            // Remove the store path prefix
-            path = path.replace(STORE_PATH, "");
+        // Remove the name suffix, so only the digest is left
+        path.resize(32, 0);
 
-            // Remove the name suffix, so only the digest is left
-            path.resize(32, 0);
+        // This better be a 32 byte nix digest
+        assert_eq!(path.len(), 32, "Must be a nix store path");
 
-            // This better be a 32 byte nix digest
-            assert_eq!(path.len(), 32, "Must be a nix store path");
-
-            path.into_string().unwrap()
-        });
+        // All nix digests are stringable so this should be fine.
+        path.into_string().unwrap()
+    });
 
     // For sending stuff to stderr
     let (ref stderr_tx, mut stderr_rx) = mpsc::channel::<String>(16);
