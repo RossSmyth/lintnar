@@ -4,7 +4,7 @@ use async_compression::tokio::bufread::ZstdDecoder;
 use bstr::{ByteSlice, ByteVec};
 use futures::{StreamExt, TryStreamExt};
 use harmonia_file_nar::{NarEvent, parse_nar};
-use hyperscan::{Builder, Matching, StreamingDatabase, pattern};
+use hyperscan::{Builder, DatabaseRef, Matching, StreamingDatabase, StreamingMode, pattern};
 use reqwest::{Client, Response};
 use tokio::{io::AsyncWriteExt, sync::mpsc};
 use tokio_util::{
@@ -72,15 +72,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             path.into_string().unwrap()
         });
 
-    let (tx, mut rx) = mpsc::channel::<String>(16);
-    let tx = &tx;
+    let (ref stderr_tx, mut stderr_rx) = mpsc::channel::<String>(16);
 
+    // Little worker task that just writes stuff to stdout in a coherent manner
     tokio::spawn(async move {
         let mut output = tokio::io::stderr();
-        while let Some(mess) = rx.recv().await {
+        while let Some(mess) = stderr_rx.recv().await {
             let _ = output.write_all(mess.as_bytes()).await;
         }
     });
+
+    let scanning_db: StreamingDatabase =
+        hyperscan::pattern! { r##"Electron/[0-9]*\.[0-9]*\.[0-9]*"##; SOM_LEFTMOST }
+            .build()
+            .unwrap();
+    let scanning_db = scanning_db.as_ref();
 
     let client = &reqwest::Client::new();
 
@@ -92,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             let name = get_nar_name(&narinfo);
-            let _ = tx.send(format!("Starting: {name}\n")).await;
+            let _ = stderr_tx.send(format!("Starting: {name}\n")).await;
 
             // Get the nar path
             let url = get_nar_url(&narinfo);
@@ -130,14 +136,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     size,
                 } = event
                 {
-                    if let Some(_) = scanner(name.clone(), executable, size, Box::new(reader)).await
+                    if let Some(_) = scanner(
+                        scanning_db,
+                        name.clone(),
+                        executable,
+                        size,
+                        Box::new(reader),
+                    )
+                    .await
                     {
                         nar_finds.push(name);
                     }
                 }
             }
 
-            let _ = tx.send(format!("Finished: {name}\n")).await;
+            let _ = stderr_tx.send(format!("Finished: {name}\n")).await;
             return nar_finds;
         })
         .buffer_unordered(8);
@@ -149,6 +162,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 // Yeah scan that file. Do ur stuff.
 async fn scanner(
+    db: &DatabaseRef<StreamingMode>,
     _: Bytes,
     executable: bool,
     _: u64,
@@ -162,20 +176,19 @@ async fn scanner(
 
     let mut found = Vec::new();
 
-    let db: StreamingDatabase =
-        hyperscan::pattern! { r##"Electron/[0-9]*\.[0-9]*\.[0-9]*"##; SOM_LEFTMOST }
-            .build()
-            .unwrap();
-
+    // Allocate the buffer needed for scanning in this task.
     let scratch = db.alloc_scratch().unwrap();
     let scanner = db.open_stream().unwrap();
 
+    // What to do when a match is found. Current just store the index of the start
+    // of the match
     let mut cb = |_, start, _, _| {
         found.push(start as usize);
 
         Matching::Continue
     };
 
+    // Scan
     while let Some(chunk) = stream.next().await {
         scanner.scan(chunk.unwrap(), &scratch, &mut cb).unwrap()
     }
