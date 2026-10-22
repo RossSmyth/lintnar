@@ -76,19 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stdin = std::io::stdin().lock();
 
     // All arguments should be store paths.
-    let store_paths = stdin.byte_lines().flatten().map(|mut path| {
-        // Remove the store path prefix
-        path = path.replace(STORE_PATH, "");
-
-        // Remove the name suffix, so only the digest is left
-        path.resize(32, 0);
-
-        // This better be a 32 byte nix digest
-        assert_eq!(path.len(), 32, "Must be a nix store path");
-
-        // All nix digests are stringable so this should be fine.
-        path.into_string().unwrap()
-    });
+    let store_paths = stdin.byte_lines().flatten();
 
     // For sending stuff to stderr
     let (ref stderr_tx, mut stderr_rx) = mpsc::channel::<Diagnostic>(16);
@@ -110,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Diagnostic::Error(name, message) => {
                     // { message: "error", "path": "...", "error": "..." }
                     jsonl = format!(
-                        r##"{{"message": "error", "path": "{}", "error": {}}}"##,
+                        r##"{{"message": "error", "path": "{}", "error": "{}"}}"##,
                         name, message
                     );
                 }
@@ -134,13 +122,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let total_processed = &AtomicU64::new(0);
 
     let found = futures::stream::iter(store_paths)
-        .map(async move |digest| {
+        .map(async move |name| {
+            // Remove the store path prefix
+            let mut digest = name.replace(STORE_PATH, "");
+
+            // Remove the name suffix, so only the digest is left
+            digest.resize(32, 0);
+
+            // All nix digests are stringable so this should be fine.
+            let digest = digest.into_string().unwrap();
+
             let narinfo = match get_narinfo(client, &digest).await {
                 Ok(res) => res.text().await.unwrap(),
-                Err(_) => return vec![],
+                Err(_) => {
+                    let _ = stderr_tx
+                        .send(Diagnostic::Error(
+                            name.into_string_lossy(),
+                            "narinfo failed".to_string(),
+                        ))
+                        .await;
+                    return vec![];
+                }
             };
 
             // Name for the store paths and output diagnostics
+            // Unsure if this is better to use or the input store path
             let name = get_nar_name(&narinfo);
             let _ = stderr_tx.send(Diagnostic::Start(name.to_string())).await;
 
