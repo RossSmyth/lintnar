@@ -1,6 +1,6 @@
 use std::{
-    ffi::{OsStr, OsString},
-    os::unix::ffi::{OsStrExt, OsStringExt},
+    ffi::OsStr,
+    os::unix::ffi::OsStrExt,
     path::PathBuf,
     pin::pin,
     sync::atomic::{AtomicU64, Ordering},
@@ -32,8 +32,7 @@ async fn get_narinfo(client: &Client, digest: &str) -> Result<Response, reqwest:
 fn get_nar_url(narinfo: &str) -> &str {
     narinfo
         .lines()
-        .skip(1)
-        .next()
+        .nth(1)
         .unwrap()
         .strip_prefix("URL: ")
         .unwrap()
@@ -42,8 +41,7 @@ fn get_nar_url(narinfo: &str) -> &str {
 fn get_nar_compression(narinfo: &str) -> &str {
     narinfo
         .lines()
-        .skip(2)
-        .next()
+        .nth(2)
         .unwrap()
         .strip_prefix("Compression: ")
         .unwrap()
@@ -61,8 +59,7 @@ fn get_nar_name(narinfo: &str) -> &str {
 fn get_nar_filesize(narinfo: &str) -> &str {
     narinfo
         .lines()
-        .skip(4)
-        .next()
+        .nth(4)
         .unwrap()
         .strip_prefix("FileSize: ")
         .unwrap()
@@ -145,9 +142,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .send()
                 .await
                 .unwrap();
-            let bytes = req
-                .bytes_stream()
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
+            let bytes = req.bytes_stream().map_err(std::io::Error::other);
             let compressed_bytes = StreamReader::new(bytes);
 
             // Wrap in a zstd decoder
@@ -170,7 +165,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         reader,
                         size,
                     } => {
-                        if let Some(_) = scanner(
+                        if scanner(
                             scanning_db,
                             name.clone(),
                             executable,
@@ -178,6 +173,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             Box::new(reader),
                         )
                         .await
+                        .is_some()
                         {
                             nar_finds.push(current_path.clone());
                         }
@@ -193,7 +189,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             let _ = stderr_tx.send(format!("Finished: {name}\n")).await;
-            return nar_finds;
+            nar_finds
         })
         .buffer_unordered(std::thread::available_parallelism().unwrap().get());
 
