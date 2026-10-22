@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-aho-corasick = "1.1.5"
 async-compression = { version = "0.4.51", features = ["zstd", "tokio", "brotli"] }
 bstr = "1.13.1"
 futures = "0.3.34"

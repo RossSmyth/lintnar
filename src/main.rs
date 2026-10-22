@@ -60,9 +60,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
 
     let client = &reqwest::Client::new();
-    let ac = &AhoCorasickBuilder::new()
-        .build(["Electron/", "Chrome/"])
-        .unwrap();
 
     let _ = futures::stream::iter(store_paths)
         .map(|digest| async move {
@@ -100,7 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     size,
                 } = event
                 {
-                    scanner(ac, name, executable, size, Box::new(reader)).await;
+                    scanner(name, executable, size, Box::new(reader)).await;
                 }
             }
         })
@@ -111,7 +108,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 // Yeah scan that file. Do ur stuff.
 async fn scanner(
-    ac: &AhoCorasick,
     name: Bytes,
     executable: bool,
     _: u64,
@@ -124,8 +120,13 @@ async fn scanner(
     let mut stream = ReaderStream::new(Box::into_pin(reader));
 
     while let Some(chunk) = stream.next().await {
-        if let Ok(chunk) = chunk {
-            let _ = chunk;
+        for byte in chunk.iter().flatten() {
+            // Regex automata
+            // state = pikevm.next_state(state, byte);
+            //
+            // if pikevm.is_match_stare(state) {
+            //    // do something
+            // }
         }
     }
 
