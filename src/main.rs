@@ -190,7 +190,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let _ = stderr_tx.send(format!("Finished: {name}\n")).await;
             return nar_finds;
         })
-        .buffer_unordered(8);
+        .buffer_unordered(std::thread::available_parallelism().unwrap().get());
 
     let output: Vec<_> = found.collect().await;
     println!("found: {:?}", output);
