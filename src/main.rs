@@ -6,6 +6,7 @@ use futures::{StreamExt, TryStreamExt};
 use harmonia_file_nar::{NarEvent, parse_nar};
 use hyperscan::{Builder, Matching, StreamingDatabase, pattern};
 use reqwest::{Client, Response};
+use tokio::{io::AsyncWriteExt, sync::mpsc};
 use tokio_util::{
     bytes::Bytes,
     io::{ReaderStream, StreamReader},
@@ -42,6 +43,15 @@ fn get_nar_compression(narinfo: &str) -> &str {
         .unwrap()
 }
 
+fn get_nar_name(narinfo: &str) -> &str {
+    narinfo
+        .lines()
+        .next()
+        .unwrap()
+        .strip_prefix("StorePath: ")
+        .unwrap()
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // All arguments should be store paths.
@@ -62,6 +72,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             path.into_string().unwrap()
         });
 
+    let (tx, mut rx) = mpsc::channel::<String>(16);
+    let tx = &tx;
+
+    tokio::spawn(async move {
+        let mut output = tokio::io::stderr();
+        while let Some(mess) = rx.recv().await {
+            let _ = output.write_all(mess.as_bytes()).await;
+        }
+    });
+
     let client = &reqwest::Client::new();
 
     let found = futures::stream::iter(store_paths)
@@ -70,6 +90,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(res) => res.text().await.unwrap(),
                 Err(_) => return vec![],
             };
+
+            let name = get_nar_name(&narinfo);
+            let _ = tx.send(format!("Starting: {name}\n")).await;
 
             // Get the nar path
             let url = get_nar_url(&narinfo);
@@ -114,6 +137,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
+            let _ = tx.send(format!("Finished: {name}\n")).await;
             return nar_finds;
         })
         .buffer_unordered(8);
