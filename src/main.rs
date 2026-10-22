@@ -15,7 +15,10 @@ const CACHE_SITE: &str = "https://cache.nixos.org/";
 
 async fn get_narinfo(client: &Client, digest: &str) -> Result<Response, reqwest::Error> {
     // https://cache.nixos.org/005q6mj9lbz7vazzs6j2d68h8gda97ic.narinfo
-    client.get(CACHE_SITE.to_string() + digest).send().await
+    client
+        .get(CACHE_SITE.to_string() + digest + ".narinfo")
+        .send()
+        .await
 }
 
 fn get_nar_url(narinfo: &str) -> &str {
@@ -60,23 +63,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client = &reqwest::Client::new();
 
-    let _ = futures::stream::iter(store_paths)
+    let found = futures::stream::iter(store_paths)
         .map(|digest| async move {
+            println!("{digest}\n");
             let narinfo = match get_narinfo(client, &digest).await {
                 Ok(res) => res.text().await.unwrap(),
-                Err(_) => return,
+                Err(_) => return vec![],
             };
+            println!("{narinfo}\n");
 
             // Get the nar path
             let url = get_nar_url(&narinfo);
+            println!("url: {url}");
 
             // Get the compression type
             let compression = get_nar_compression(&narinfo);
+            println!("comp: {compression}");
             assert_eq!(compression, "zstd", "Only supports zstd right now");
 
             // Actually get the nar archive. I want to move this to function
             // but async types make me sad.
-            let req = client.get(url).send().await.unwrap();
+            let req = client
+                .get(CACHE_SITE.to_string() + url)
+                .send()
+                .await
+                .unwrap();
             let bytes = req
                 .bytes_stream()
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
@@ -88,6 +99,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Then stuff it into parse events. We only want to scan files so filter to those.
             // Then call the scanning function.
             let mut parse_events = pin!(parse_nar(decompressed_bytes));
+
+            let mut nar_finds: Vec<usize> = vec![];
+
             while let Some(event) = parse_events.try_next().await.unwrap() {
                 if let NarEvent::File {
                     name,
@@ -96,12 +110,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     size,
                 } = event
                 {
-                    scanner(name, executable, size, Box::new(reader)).await;
+                    if let Some((_, found)) =
+                        scanner(name, executable, size, Box::new(reader)).await
+                    {
+                        nar_finds.extend_from_slice(&found);
+                    }
                 }
             }
+
+            return nar_finds;
         })
         .buffer_unordered(8);
 
+    let output: Vec<_> = found.collect().await;
+    println!("found: {:?}", output);
     Ok(())
 }
 
@@ -111,15 +133,20 @@ async fn scanner(
     executable: bool,
     _: u64,
     reader: Box<dyn tokio::io::AsyncBufRead>,
-) -> Option<(Bytes, ())> {
+) -> Option<(Bytes, Vec<usize>)> {
     if !executable {
         return None;
     }
 
     let mut stream = ReaderStream::new(Box::into_pin(reader));
 
+    let mut found = Vec::new();
+
     while let Some(chunk) = stream.next().await {
-        for byte in chunk.iter().flatten() {
+        for (index, &byte) in chunk.iter().flatten().enumerate() {
+            if byte == 0u8 {
+                found.push(index)
+            }
             // Regex automata
             // state = pikevm.next_state(state, byte);
             //
@@ -129,5 +156,9 @@ async fn scanner(
         }
     }
 
-    Some((name, ()))
+    if !found.is_empty() {
+        Some((name, found))
+    } else {
+        None
+    }
 }
