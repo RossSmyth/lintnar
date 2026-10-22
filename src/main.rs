@@ -201,7 +201,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .filter(|item| !item.is_empty())
             .collect::<Vec<_>>()
     );
-    println!(
+    eprintln!(
         "Total processed: {} MiB",
         total_processed.load(Ordering::Relaxed) >> 20
     );
