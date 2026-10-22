@@ -66,20 +66,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let found = futures::stream::iter(store_paths)
         .map(async move |digest| {
-            println!("{digest}\n");
             let narinfo = match get_narinfo(client, &digest).await {
                 Ok(res) => res.text().await.unwrap(),
                 Err(_) => return vec![],
             };
-            println!("{narinfo}\n");
 
             // Get the nar path
             let url = get_nar_url(&narinfo);
-            println!("url: {url}");
 
             // Get the compression type
             let compression = get_nar_compression(&narinfo);
-            println!("comp: {compression}");
             assert_eq!(compression, "zstd", "Only supports zstd right now");
 
             // Actually get the nar archive. I want to move this to function
