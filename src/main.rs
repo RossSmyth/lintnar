@@ -4,6 +4,7 @@ use async_compression::tokio::bufread::ZstdDecoder;
 use bstr::{ByteSlice, ByteVec};
 use futures::{StreamExt, TryStreamExt};
 use harmonia_file_nar::{NarEvent, parse_nar};
+use hyperscan::{Builder, Matching, StreamingDatabase, pattern};
 use reqwest::{Client, Response};
 use tokio_util::{
     bytes::Bytes,
@@ -141,19 +142,25 @@ async fn scanner(
 
     let mut found = Vec::new();
 
+    let db: StreamingDatabase =
+        hyperscan::pattern! { r##"Electron/[0-9]*\.[0-9]*\.[0-9]*"##; SOM_LEFTMOST }
+            .build()
+            .unwrap();
+
+    let scratch = db.alloc_scratch().unwrap();
+    let scanner = db.open_stream().unwrap();
+
+    let mut cb = |_, start, _, _| {
+        found.push(start as usize);
+
+        Matching::Continue
+    };
+
     while let Some(chunk) = stream.next().await {
-        for (index, &byte) in chunk.iter().flatten().enumerate() {
-            if byte == 0u8 {
-                found.push(index)
-            }
-            // Regex automata
-            // state = pikevm.next_state(state, byte);
-            //
-            // if pikevm.is_match_stare(state) {
-            //    // do something
-            // }
-        }
+        scanner.scan(chunk.unwrap(), &scratch, &mut cb).unwrap()
     }
+
+    scanner.close(&scratch, cb).unwrap();
 
     if !found.is_empty() { Some(found) } else { None }
 }
