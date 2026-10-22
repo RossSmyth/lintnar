@@ -1,4 +1,9 @@
-use std::pin::pin;
+use std::{
+    ffi::{OsStr, OsString},
+    os::unix::ffi::{OsStrExt, OsStringExt},
+    path::PathBuf,
+    pin::pin,
+};
 
 use async_compression::tokio::bufread::ZstdDecoder;
 use bstr::{ByteSlice, ByteVec};
@@ -126,27 +131,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Then call the scanning function.
             let mut parse_events = pin!(parse_nar(decompressed_bytes));
 
-            let mut nar_finds: Vec<Bytes> = vec![];
+            let mut nar_finds: Vec<PathBuf> = vec![];
+
+            // Buffer keeping track of the current nix store path we are looking at.
+            let mut current_path = PathBuf::from(name);
 
             while let Some(event) = parse_events.try_next().await.unwrap() {
-                if let NarEvent::File {
-                    name,
-                    executable,
-                    reader,
-                    size,
-                } = event
-                {
-                    if let Some(_) = scanner(
-                        scanning_db,
-                        name.clone(),
+                match event {
+                    NarEvent::File {
+                        name,
                         executable,
+                        reader,
                         size,
-                        Box::new(reader),
-                    )
-                    .await
-                    {
-                        nar_finds.push(name);
+                    } => {
+                        if let Some(_) = scanner(
+                            scanning_db,
+                            name.clone(),
+                            executable,
+                            size,
+                            Box::new(reader),
+                        )
+                        .await
+                        {
+                            nar_finds.push(current_path.clone());
+                        }
                     }
+                    NarEvent::StartDirectory { name } => {
+                        current_path.push(OsStr::from_bytes(&name))
+                    }
+                    NarEvent::EndDirectory => {
+                        current_path.pop();
+                    }
+                    NarEvent::Symlink { .. } => continue,
                 }
             }
 
