@@ -3,6 +3,7 @@ use std::{
     os::unix::ffi::{OsStrExt, OsStringExt},
     path::PathBuf,
     pin::pin,
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 use async_compression::tokio::bufread::ZstdDecoder;
@@ -57,6 +58,16 @@ fn get_nar_name(narinfo: &str) -> &str {
         .unwrap()
 }
 
+fn get_nar_filesize(narinfo: &str) -> &str {
+    narinfo
+        .lines()
+        .skip(4)
+        .next()
+        .unwrap()
+        .strip_prefix("FileSize: ")
+        .unwrap()
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // All arguments should be store paths.
@@ -95,6 +106,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let client = &reqwest::Client::new();
 
+    let total_processed = &AtomicU64::new(0);
+
     let found = futures::stream::iter(store_paths)
         .map(async move |digest| {
             let narinfo = match get_narinfo(client, &digest).await {
@@ -102,6 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Err(_) => return vec![],
             };
 
+            // Name for the store paths and output diagnostics
             let name = get_nar_name(&narinfo);
             let _ = stderr_tx.send(format!("Starting: {name}\n")).await;
 
@@ -115,6 +129,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 return vec![];
             }
+
+            let size = get_nar_filesize(&narinfo);
+            total_processed.fetch_add(size.parse().unwrap(), Ordering::Relaxed);
 
             // Actually get the nar archive. I want to move this to function
             // but async types make me sad.
@@ -177,6 +194,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let output: Vec<_> = found.collect().await;
     println!("found: {:?}", output);
+    println!(
+        "Total processed: {} MiB",
+        total_processed.load(Ordering::Relaxed) >> 20
+    );
+
     Ok(())
 }
 
