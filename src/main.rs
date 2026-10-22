@@ -98,7 +98,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The regex that is being scanned for. The FSM is shared across
     // all tasks.
     let scanning_db: StreamingDatabase =
-        hyperscan::pattern! { r##"Electron/[0-9]*\.[0-9]*\.[0-9]*"##; SOM_LEFTMOST }
+        hyperscan::pattern! { r##"BEGIN CERTIFICATE"##; SOM_LEFTMOST }
             .build()
             .unwrap();
     let scanning_db = scanning_db.as_ref();
@@ -174,7 +174,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .await
                         .is_some()
                         {
-                            nar_finds.push(current_path.clone());
+                            let mut path = current_path.clone();
+                            path.push(OsStr::from_bytes(&name));
+                            nar_finds.push(path);
                         }
                     }
                     NarEvent::StartDirectory { name } => {
