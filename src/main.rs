@@ -88,6 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             path.into_string().unwrap()
         });
 
+    // For sending stuff to stderr
     let (ref stderr_tx, mut stderr_rx) = mpsc::channel::<String>(16);
 
     // Little worker task that just writes stuff to stdout in a coherent manner
@@ -98,14 +99,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // The regex that is being scanned for. The FSM is shared across
+    // all tasks.
     let scanning_db: StreamingDatabase =
         hyperscan::pattern! { r##"Electron/[0-9]*\.[0-9]*\.[0-9]*"##; SOM_LEFTMOST }
             .build()
             .unwrap();
     let scanning_db = scanning_db.as_ref();
 
+    // Reqwest client shared with all tasks
     let client = &reqwest::Client::new();
 
+    // For diagnostics
     let total_processed = &AtomicU64::new(0);
 
     let found = futures::stream::iter(store_paths)
@@ -193,7 +198,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .buffer_unordered(std::thread::available_parallelism().unwrap().get());
 
     let output: Vec<_> = found.collect().await;
-    println!("found: {:?}", output);
+    println!(
+        "found: {:?}",
+        output
+            .iter()
+            .filter(|item| !item.is_empty())
+            .collect::<Vec<_>>()
+    );
     println!(
         "Total processed: {} MiB",
         total_processed.load(Ordering::Relaxed) >> 20
