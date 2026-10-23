@@ -11,7 +11,7 @@ use bstr::{ByteSlice, ByteVec, io::BufReadExt};
 use futures::{StreamExt, TryStreamExt};
 use harmonia_file_nar::{NarEvent, parse_nar};
 use hyperscan::{Builder, DatabaseRef, Matching, StreamingDatabase, StreamingMode, pattern};
-use tokio::io::AsyncRead;
+use tokio::{io::AsyncRead, time::Instant};
 use tokio_util::{bytes::Bytes, io::ReaderStream};
 
 use crate::{
@@ -166,9 +166,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Remember, this is what actually drives the whole thing.
     // the call to collect runs the above processing
-    let output: Vec<_> = found
-        .collect::<Vec<_>>()
-        .await
+
+    let start = Instant::now();
+
+    let output: Vec<_> = found.collect::<Vec<_>>().await;
+    let total_paths = output.len();
+
+    let output = output
         .into_iter()
         .filter(|item| !item.is_empty())
         .flatten()
@@ -178,9 +182,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = logging_tx.send(Diagnostic::Result(output)).await;
     let _ = logging_worker.await; // Must await or else the process usually shuts down before the results are printed
 
+    let duration = Instant::now() - start;
     eprintln!(
-        "Total processed: {} MiB",
-        total_processed.load(Ordering::Relaxed) >> 20
+        r##"Data processed: {} MiB
+Processing time: {:.1} sec
+Total paths process: {} store paths
+        "##,
+        total_processed.load(Ordering::Relaxed) >> 20,
+        duration.as_secs_f32(),
+        total_paths
     );
 
     Ok(())
