@@ -27,6 +27,7 @@ const CACHE_SITE: &str = "https://cache.nixos.org/";
 enum Diagnostic {
     Start(String),
     Finish(String),
+    Result(Vec<PathBuf>),
     Error(String, String),
 }
 
@@ -41,10 +42,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (ref stdout_tx, mut stdout_rx) = mpsc::channel::<Diagnostic>(16);
 
     // Little worker task that just writes stuff to stdout in a coherent manner
-    tokio::spawn(async move {
+    let stdout_worker = tokio::spawn(async move {
         let mut output = tokio::io::stdout();
         while let Some(mess) = stdout_rx.recv().await {
             let jsonl;
+            let mut exit = false;
             match mess {
                 Diagnostic::Start(name) => {
                     // { message: "start", path: "..." }
@@ -61,8 +63,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         name, message
                     );
                 }
+                Diagnostic::Result(output) => {
+                    // { message: "error", "path": "...", "error": "..." }
+                    jsonl = format!(r##"{{"message": "result", "matches": {:?} }}"##, output);
+                    exit = true;
+                }
             }
             let _ = output.write_all((jsonl + "\n").as_bytes()).await;
+            if exit {
+                return;
+            }
         }
     });
 
@@ -192,15 +202,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .buffer_unordered(std::thread::available_parallelism().unwrap().get());
 
-    let output: Vec<_> = found.collect().await;
-    println!(
-        r##"{{ "message": "results", "result": {:?}"##,
-        output
-            .iter()
-            .flatten()
-            .filter(|item| !item.is_empty())
-            .collect::<Vec<_>>()
-    );
+    let output: Vec<_> = found
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .filter(|item| !item.is_empty())
+        .flatten()
+        .collect();
+
+    let _ = stdout_tx.send(Diagnostic::Result(output)).await;
+    let _ = stdout_worker.await.unwrap();
+
     eprintln!(
         "Total processed: {} MiB",
         total_processed.load(Ordering::Relaxed) >> 20
