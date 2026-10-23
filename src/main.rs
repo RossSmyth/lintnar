@@ -8,10 +8,14 @@ use std::{
 
 use async_compression::tokio::bufread::{XzDecoder, ZstdDecoder};
 use bstr::{ByteSlice, ByteVec, io::BufReadExt};
-use futures::{StreamExt, TryStreamExt};
+use futures::{FutureExt, StreamExt, TryStreamExt};
 use harmonia_file_nar::{NarEvent, parse_nar};
 use hyperscan::{Builder, DatabaseRef, Matching, StreamingDatabase, StreamingMode, pattern};
-use tokio::{io::AsyncRead, time::Instant};
+use tokio::{
+    io::AsyncRead,
+    signal::unix::{Signal, SignalKind},
+    time::Instant,
+};
 use tokio_util::{bytes::Bytes, io::ReaderStream};
 
 use crate::{
@@ -52,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // then stream the nar archive, decompress the stream as it's streaming,
     // and then inspect the decompressed stream. We should not load a full archive
     // into memory.
-    let found = futures::stream::iter(store_paths)
+    let mut found = futures::stream::iter(store_paths)
         .map(async move |name| {
             let digest = path_to_digest(&name);
 
@@ -178,21 +182,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let _ = logging_tx.send(Diagnostic::Finish(name.to_string())).await;
             nar_finds
         })
-        .buffer_unordered(std::thread::available_parallelism().unwrap().get());
+        .buffer_unordered(std::thread::available_parallelism().unwrap().get())
+        .fuse();
 
     // Remember, this is what actually drives the whole thing.
     // the call to collect runs the above processing
+    let mut signals = get_signals();
+    let signals = signals.iter_mut().map(|sig| Box::pin(sig.recv()));
+    let mut signals = futures::future::select_all(signals).fuse();
 
     let start = Instant::now();
+    let mut output = vec![];
+    let mut total_paths = 0u64;
 
-    let output: Vec<_> = found.collect::<Vec<_>>().await;
-    let total_paths = output.len();
-
-    let output = output
-        .into_iter()
-        .filter(|item| !item.is_empty())
-        .flatten()
-        .collect();
+    loop {
+        tokio::select! {
+            biased;
+            data = found.next() => {
+                match data {
+                    Some(data) => {
+                        total_paths += 1;
+                        if !data.is_empty() {
+                            output.extend(data)
+                        }
+                    }
+                    None => break,
+                }
+            },
+            _ = &mut signals => break,
+        }
+    }
 
     // Final result
     let _ = logging_tx.send(Diagnostic::Result(output)).await;
@@ -262,4 +281,16 @@ fn path_to_digest(path: &[u8]) -> String {
 
     // To String, they will always be valid.
     out.into_string().unwrap()
+}
+
+fn get_signals() -> [Signal; 5] {
+    use tokio::signal::unix::signal;
+
+    let alarm = signal(SignalKind::alarm()).unwrap();
+    let hup = signal(SignalKind::hangup()).unwrap();
+    let interrupt = signal(SignalKind::interrupt()).unwrap();
+    let pipe = signal(SignalKind::pipe()).unwrap();
+    let term = signal(SignalKind::terminate()).unwrap();
+
+    [alarm, hup, interrupt, pipe, term]
 }
