@@ -6,11 +6,12 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use async_compression::tokio::bufread::ZstdDecoder;
+use async_compression::tokio::bufread::{XzDecoder, ZstdDecoder};
 use bstr::{ByteSlice, ByteVec, io::BufReadExt};
 use futures::{StreamExt, TryStreamExt};
 use harmonia_file_nar::{NarEvent, parse_nar};
 use hyperscan::{Builder, DatabaseRef, Matching, StreamingDatabase, StreamingMode, pattern};
+use tokio::io::AsyncRead;
 use tokio_util::{bytes::Bytes, io::ReaderStream};
 
 use crate::{
@@ -85,16 +86,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Get the compression type
             let compression = narinfo.get_nar_compression();
-            if compression != Compression::Zstd {
-                let _ = logging_tx
-                    .send(Diagnostic::Error(
-                        name.to_string(),
-                        format!("not zstd, is {compression:?}"),
-                    ))
-                    .await;
-
-                return vec![];
-            }
 
             let size = narinfo.get_nar_filesize();
             total_processed.fetch_add(size, Ordering::Relaxed);
@@ -102,7 +93,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let compressed_bytes = get_nar(client, url).await;
 
             // Wrap in a zstd decoder
-            let decompressed_bytes = ZstdDecoder::new(compressed_bytes);
+            let decompressed_bytes: Box<dyn AsyncRead> = match compression {
+                Compression::Zstd => Box::new(ZstdDecoder::new(compressed_bytes)),
+                Compression::Xz => Box::new(XzDecoder::new(compressed_bytes)),
+                Compression::Unknown => {
+                    let _ = logging_tx
+                        .send(Diagnostic::Error(
+                            name.to_string(),
+                            format!("Unknown compression"),
+                        ))
+                        .await;
+                    return vec![];
+                }
+            };
+            let decompressed_bytes = Box::into_pin(decompressed_bytes);
 
             // Then stuff it into parse events. We only want to scan files so filter to those.
             // Then call the scanning function.
