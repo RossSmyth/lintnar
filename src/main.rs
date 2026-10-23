@@ -168,7 +168,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     let _ = logging_tx.send(Diagnostic::Result(output)).await;
-    let _ = logging_worker.await.unwrap();
+    let _ = logging_worker.await; // Must await or else the process usually shuts down before the results are printed
 
     eprintln!(
         "Total processed: {} MiB",
