@@ -4,9 +4,12 @@ Lint NAR files or something. Reads them without loading the entire archives into
 
 ## Using
 
-Pass store paths via cli args. Then it will do something.
+Pass store paths via stdin.
 
-`lintnar /nix/store/005q6mj9lbz7vazzs6j2d68h8gda97ic-fuzzel-1.15.0`
+1. `curl curl -sfL https://channels.nixos.org/nixos-unstable/store-paths.xz | xz -d > store-paths.txt`
+2. `cat store-paths.txt | lintnar`
+
+Optionally wrap it in systemd-run.
 
 ## TODO
 
