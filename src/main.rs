@@ -47,6 +47,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // For diagnostics
     let ref total_processed = AtomicU64::new(0);
 
+    // Process on a task-per-core setup where we
+    // first pull the narinfo file, find the url for the nar archive,
+    // then stream the nar archive, decompress the stream as it's streaming,
+    // and then inspect the decompressed stream. We should not load a full archive
+    // into memory.
     let found = futures::stream::iter(store_paths)
         .map(async move |name| {
             let digest = path_to_digest(&name);
@@ -87,15 +92,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Get the compression type
             let compression = narinfo.get_nar_compression();
 
-            let size = narinfo.get_nar_filesize();
-            total_processed.fetch_add(size, Ordering::Relaxed);
+            // Pull the NAR down as an async stream
+            let compressed_stream = get_nar(client, url).await;
 
-            let compressed_bytes = get_nar(client, url).await;
-
-            // Wrap in a zstd decoder
-            let decompressed_bytes: Box<dyn AsyncRead> = match compression {
-                Compression::Zstd => Box::new(ZstdDecoder::new(compressed_bytes)),
-                Compression::Xz => Box::new(XzDecoder::new(compressed_bytes)),
+            // Wrap in a decoder
+            let decompressed_stream: Box<dyn AsyncRead> = match compression {
+                Compression::Zstd => Box::new(ZstdDecoder::new(compressed_stream)),
+                Compression::Xz => Box::new(XzDecoder::new(compressed_stream)),
                 Compression::Unknown => {
                     let _ = logging_tx
                         .send(Diagnostic::Error(
@@ -106,12 +109,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     return vec![];
                 }
             };
-            let decompressed_bytes = Box::into_pin(decompressed_bytes);
+            let decompressed_bytes = Box::into_pin(decompressed_stream);
+
+            // Make sure this is incremented after we decode or else
+            // we will add data we never actually processed
+            let size = narinfo.get_nar_filesize();
+            total_processed.fetch_add(size, Ordering::Relaxed);
 
             // Then stuff it into parse events. We only want to scan files so filter to those.
             // Then call the scanning function.
             let mut parse_events = pin!(parse_nar(decompressed_bytes));
 
+            // Mark the store paths that are matched
             let mut nar_finds: Vec<PathBuf> = vec![];
 
             // Buffer keeping track of the current nix store path we are looking at.
@@ -155,6 +164,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .buffer_unordered(std::thread::available_parallelism().unwrap().get());
 
+    // Remember, this is what actually drives the whole thing.
+    // the call to collect runs the above processing
     let output: Vec<_> = found
         .collect::<Vec<_>>()
         .await
@@ -163,6 +174,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .flatten()
         .collect();
 
+    // Final result
     let _ = logging_tx.send(Diagnostic::Result(output)).await;
     let _ = logging_worker.await; // Must await or else the process usually shuts down before the results are printed
 
