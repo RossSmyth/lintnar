@@ -194,9 +194,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let output: Vec<_> = found.collect().await;
     println!(
-        "found: {:?}",
+        r##"{{ "message": "results", "result": {:?}"##,
         output
             .iter()
+            .flatten()
             .filter(|item| !item.is_empty())
             .collect::<Vec<_>>()
     );
