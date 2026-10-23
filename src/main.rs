@@ -11,7 +11,11 @@ use bstr::{ByteSlice, ByteVec, io::BufReadExt};
 use futures::{StreamExt, TryStreamExt};
 use harmonia_file_nar::{NarEvent, parse_nar};
 use hyperscan::{Builder, DatabaseRef, Matching, StreamingDatabase, StreamingMode, pattern};
-use tokio::{io::AsyncWriteExt, sync::mpsc};
+use tokio::{
+    io::AsyncWriteExt,
+    sync::mpsc::{self, Sender},
+    task::JoinHandle,
+};
 use tokio_util::{
     bytes::Bytes,
     io::{ReaderStream, StreamReader},
@@ -38,43 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // All arguments should be store paths.
     let store_paths = stdin.byte_lines().flatten();
 
-    // For sending stuff to stderr
-    let (ref stdout_tx, mut stdout_rx) = mpsc::channel::<Diagnostic>(16);
-
-    // Little worker task that just writes stuff to stdout in a coherent manner
-    let stdout_worker = tokio::spawn(async move {
-        let mut output = tokio::io::stdout();
-        while let Some(mess) = stdout_rx.recv().await {
-            let jsonl;
-            let mut exit = false;
-            match mess {
-                Diagnostic::Start(name) => {
-                    // { message: "start", path: "..." }
-                    jsonl = format!(r##"{{"message": "start", "path": "{}"}}"##, name);
-                }
-                Diagnostic::Finish(name) => {
-                    // { message: "start", path: "..." }
-                    jsonl = format!(r##"{{"message": "finish", "path": "{}"}}"##, name);
-                }
-                Diagnostic::Error(name, message) => {
-                    // { message: "error", "path": "...", "error": "..." }
-                    jsonl = format!(
-                        r##"{{"message": "error", "path": "{}", "error": "{}"}}"##,
-                        name, message
-                    );
-                }
-                Diagnostic::Result(output) => {
-                    // { message: "error", "path": "...", "error": "..." }
-                    jsonl = format!(r##"{{"message": "result", "matches": {:?} }}"##, output);
-                    exit = true;
-                }
-            }
-            let _ = output.write_all((jsonl + "\n").as_bytes()).await;
-            if exit {
-                return;
-            }
-        }
-    });
+    let (logging_worker, ref logging_tx) = logging_worker();
 
     // The regex that is being scanned for. The FSM is shared across
     // all tasks.
@@ -97,7 +65,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Ok(res) => match res.text().await {
                     Ok(info) => info,
                     Err(err) => {
-                        let _ = stdout_tx
+                        let _ = logging_tx
                             .send(Diagnostic::Error(
                                 name.into_string_lossy(),
                                 format!("narinfo failed: '{err}'"),
@@ -107,7 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 },
                 Err(err) => {
-                    let _ = stdout_tx
+                    let _ = logging_tx
                         .send(Diagnostic::Error(
                             name.into_string_lossy(),
                             format!("narinfo failed: '{err}'"),
@@ -121,7 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Name for the store paths and output diagnostics
             // Unsure if this is better to use or the input store path
             let name = narinfo.get_nar_name();
-            let _ = stdout_tx.send(Diagnostic::Start(name.to_string())).await;
+            let _ = logging_tx.send(Diagnostic::Start(name.to_string())).await;
 
             // Get the nar path
             let url = narinfo.get_nar_url();
@@ -129,7 +97,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Get the compression type
             let compression = narinfo.get_nar_compression();
             if compression != Compression::Zstd {
-                let _ = stdout_tx
+                let _ = logging_tx
                     .send(Diagnostic::Error(
                         name.to_string(),
                         format!("not zstd, is {compression:?}"),
@@ -197,7 +165,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            let _ = stdout_tx.send(Diagnostic::Finish(name.to_string())).await;
+            let _ = logging_tx.send(Diagnostic::Finish(name.to_string())).await;
             nar_finds
         })
         .buffer_unordered(std::thread::available_parallelism().unwrap().get());
@@ -210,8 +178,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .flatten()
         .collect();
 
-    let _ = stdout_tx.send(Diagnostic::Result(output)).await;
-    let _ = stdout_worker.await.unwrap();
+    let _ = logging_tx.send(Diagnostic::Result(output)).await;
+    let _ = logging_worker.await.unwrap();
 
     eprintln!(
         "Total processed: {} MiB",
@@ -271,4 +239,46 @@ fn path_to_digest(path: &[u8]) -> String {
 
     // To String, they will always be valid.
     out.into_string().unwrap()
+}
+
+fn logging_worker() -> (JoinHandle<()>, Sender<Diagnostic>) {
+    // For sending stuff to stderr
+    let (stdout_tx, mut stdout_rx) = mpsc::channel::<Diagnostic>(16);
+
+    // Little worker task that just writes stuff to stdout in a coherent manner
+    let stdout_worker = tokio::spawn(async move {
+        let mut output = tokio::io::stdout();
+        while let Some(mess) = stdout_rx.recv().await {
+            let jsonl;
+            let mut exit = false;
+            match mess {
+                Diagnostic::Start(name) => {
+                    // { message: "start", path: "..." }
+                    jsonl = format!(r##"{{"message": "start", "path": "{}"}}"##, name);
+                }
+                Diagnostic::Finish(name) => {
+                    // { message: "start", path: "..." }
+                    jsonl = format!(r##"{{"message": "finish", "path": "{}"}}"##, name);
+                }
+                Diagnostic::Error(name, message) => {
+                    // { message: "error", "path": "...", "error": "..." }
+                    jsonl = format!(
+                        r##"{{"message": "error", "path": "{}", "error": "{}"}}"##,
+                        name, message
+                    );
+                }
+                Diagnostic::Result(output) => {
+                    // { message: "error", "path": "...", "error": "..." }
+                    jsonl = format!(r##"{{"message": "result", "matches": {:?} }}"##, output);
+                    exit = true;
+                }
+            }
+            let _ = output.write_all((jsonl + "\n").as_bytes()).await;
+            if exit {
+                return;
+            }
+        }
+    });
+
+    (stdout_worker, stdout_tx)
 }
