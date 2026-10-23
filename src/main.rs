@@ -11,59 +11,16 @@ use bstr::{ByteSlice, ByteVec, io::BufReadExt};
 use futures::{StreamExt, TryStreamExt};
 use harmonia_file_nar::{NarEvent, parse_nar};
 use hyperscan::{Builder, DatabaseRef, Matching, StreamingDatabase, StreamingMode, pattern};
-use reqwest::{Client, Response};
 use tokio::{io::AsyncWriteExt, sync::mpsc};
 use tokio_util::{
     bytes::Bytes,
     io::{ReaderStream, StreamReader},
 };
 
+mod narinfo;
+
 const STORE_PATH: &str = "/nix/store/";
 const CACHE_SITE: &str = "https://cache.nixos.org/";
-
-async fn get_narinfo(client: &Client, digest: &str) -> Result<Response, reqwest::Error> {
-    // https://cache.nixos.org/005q6mj9lbz7vazzs6j2d68h8gda97ic.narinfo
-    client
-        .get(CACHE_SITE.to_string() + digest + ".narinfo")
-        .send()
-        .await
-}
-
-fn get_nar_url(narinfo: &str) -> &str {
-    narinfo
-        .lines()
-        .nth(1)
-        .unwrap()
-        .strip_prefix("URL: ")
-        .unwrap()
-}
-
-fn get_nar_compression(narinfo: &str) -> &str {
-    narinfo
-        .lines()
-        .nth(2)
-        .unwrap()
-        .strip_prefix("Compression: ")
-        .unwrap()
-}
-
-fn get_nar_name(narinfo: &str) -> &str {
-    narinfo
-        .lines()
-        .next()
-        .unwrap()
-        .strip_prefix("StorePath: ")
-        .unwrap()
-}
-
-fn get_nar_filesize(narinfo: &str) -> &str {
-    narinfo
-        .lines()
-        .nth(4)
-        .unwrap()
-        .strip_prefix("FileSize: ")
-        .unwrap()
-}
 
 enum Diagnostic {
     Start(String),
@@ -132,29 +89,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // All nix digests are stringable so this should be fine.
             let digest = digest.into_string().unwrap();
 
-            let narinfo = match get_narinfo(client, &digest).await {
-                Ok(res) => res.text().await.unwrap(),
-                Err(_) => {
+            let narinfo = match narinfo::get_narinfo(client, &digest).await {
+                Ok(res) => match res.text().await {
+                    Ok(info) => info,
+                    Err(err) => {
+                        let _ = stderr_tx
+                            .send(Diagnostic::Error(
+                                name.into_string_lossy(),
+                                format!("narinfo failed: '{err}'"),
+                            ))
+                            .await;
+                        return vec![];
+                    }
+                },
+                Err(err) => {
                     let _ = stderr_tx
                         .send(Diagnostic::Error(
                             name.into_string_lossy(),
-                            "narinfo failed".to_string(),
+                            format!("narinfo failed: '{err}'"),
                         ))
                         .await;
                     return vec![];
                 }
             };
+            let narinfo = narinfo::NarInfo::new(&narinfo);
 
             // Name for the store paths and output diagnostics
             // Unsure if this is better to use or the input store path
-            let name = get_nar_name(&narinfo);
+            let name = narinfo.get_nar_name();
             let _ = stderr_tx.send(Diagnostic::Start(name.to_string())).await;
 
             // Get the nar path
-            let url = get_nar_url(&narinfo);
+            let url = narinfo.get_nar_url();
 
             // Get the compression type
-            let compression = get_nar_compression(&narinfo);
+            let compression = narinfo.get_nar_compression();
             if compression != "zstd" {
                 let _ = stderr_tx
                     .send(Diagnostic::Error(name.to_string(), "not zstd".to_string()))
@@ -163,7 +132,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return vec![];
             }
 
-            let size = get_nar_filesize(&narinfo);
+            let size = narinfo.get_nar_filesize();
             total_processed.fetch_add(size.parse().unwrap(), Ordering::Relaxed);
 
             // Actually get the nar archive. I want to move this to function
