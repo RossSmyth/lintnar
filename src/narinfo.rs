@@ -10,7 +10,15 @@ pub async fn get_narinfo(client: &Client, digest: &str) -> Result<Response, reqw
         .await
 }
 
+#[derive(Copy, Eq, PartialEq, Clone, Debug)]
+pub enum Compression {
+    Zstd,
+    Xz,
+    Unknown,
+}
+
 #[repr(transparent)]
+#[derive(Copy, Eq, PartialEq, Clone, Debug)]
 pub struct NarInfo<'text>(&'text str);
 
 impl<'text> NarInfo<'text> {
@@ -27,13 +35,20 @@ impl<'text> NarInfo<'text> {
             .unwrap()
     }
 
-    pub fn get_nar_compression(&self) -> &str {
-        self.0
+    pub fn get_nar_compression(&self) -> Compression {
+        let comp = self
+            .0
             .lines()
             .nth(2)
             .unwrap()
             .strip_prefix("Compression: ")
-            .unwrap()
+            .unwrap();
+
+        match comp {
+            "zstd" => Compression::Zstd,
+            "xz" => Compression::Xz,
+            _ => Compression::Unknown,
+        }
     }
 
     pub fn get_nar_name(&self) -> &str {
@@ -45,19 +60,21 @@ impl<'text> NarInfo<'text> {
             .unwrap()
     }
 
-    pub fn get_nar_filesize(&self) -> &str {
+    pub fn get_nar_filesize(&self) -> u64 {
         self.0
             .lines()
             .nth(4)
             .unwrap()
             .strip_prefix("FileSize: ")
             .unwrap()
+            .parse()
+            .unwrap()
     }
 }
 
 #[cfg(test)]
 mod test {
-    use crate::narinfo::NarInfo;
+    use crate::narinfo::{Compression, NarInfo};
 
     const NARINFO: &str = include_str!("../test-data/narinfo.txt");
 
@@ -69,11 +86,11 @@ mod test {
             nar.get_nar_url(),
             "nar/15wqblfjqn4v1hd7jgk4759pr1vgs7c9gkwiniy036hzcr06fgys.nar.zst"
         );
-        assert_eq!(nar.get_nar_compression(), "zstd");
+        assert_eq!(nar.get_nar_compression(), Compression::Zstd);
         assert_eq!(
             nar.get_nar_name(),
             "/nix/store/005q6mj9lbz7vazzs6j2d68h8gda97ic-fuzzel-1.15.0"
         );
-        assert_eq!(nar.get_nar_filesize(), "187461");
+        assert_eq!(nar.get_nar_filesize(), 187461);
     }
 }

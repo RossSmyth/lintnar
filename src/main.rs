@@ -17,6 +17,8 @@ use tokio_util::{
     io::{ReaderStream, StreamReader},
 };
 
+use crate::narinfo::Compression;
+
 mod narinfo;
 
 const STORE_PATH: &str = "/nix/store/";
@@ -66,28 +68,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // The regex that is being scanned for. The FSM is shared across
     // all tasks.
-    let scanning_db: StreamingDatabase =
+    let ref scanning_db: StreamingDatabase =
         hyperscan::pattern! { r##"BEGIN CERTIFICATE"##; SOM_LEFTMOST }
             .build()
             .unwrap();
-    let scanning_db = scanning_db.as_ref();
 
     // Reqwest client shared with all tasks
-    let client = &reqwest::Client::new();
+    let ref client = reqwest::Client::new();
 
     // For diagnostics
-    let total_processed = &AtomicU64::new(0);
+    let ref total_processed = AtomicU64::new(0);
 
     let found = futures::stream::iter(store_paths)
         .map(async move |name| {
-            // Remove the store path prefix
-            let mut digest = name.replace(STORE_PATH, "");
-
-            // Remove the name suffix, so only the digest is left
-            digest.resize(32, 0);
-
-            // All nix digests are stringable so this should be fine.
-            let digest = digest.into_string().unwrap();
+            let digest = path_to_digest(&name);
 
             let narinfo = match narinfo::get_narinfo(client, &digest).await {
                 Ok(res) => match res.text().await {
@@ -124,16 +118,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // Get the compression type
             let compression = narinfo.get_nar_compression();
-            if compression != "zstd" {
+            if compression != Compression::Zstd {
                 let _ = stderr_tx
-                    .send(Diagnostic::Error(name.to_string(), "not zstd".to_string()))
+                    .send(Diagnostic::Error(
+                        name.to_string(),
+                        format!("not zstd, is {compression:?}"),
+                    ))
                     .await;
 
                 return vec![];
             }
 
             let size = narinfo.get_nar_filesize();
-            total_processed.fetch_add(size.parse().unwrap(), Ordering::Relaxed);
+            total_processed.fetch_add(size, Ordering::Relaxed);
 
             // Actually get the nar archive. I want to move this to function
             // but async types make me sad.
@@ -247,4 +244,18 @@ async fn scanner(
     scanner.close(&scratch, cb).unwrap();
 
     if !found.is_empty() { Some(found) } else { None }
+}
+
+/// Nix store path to the drv digest string.
+fn path_to_digest(path: &[u8]) -> String {
+    // Remove the store path prefix
+    // '/nix/store/3bfp9mlim5v39aabhwaj4hizl30mfr2q-source' -> '3bfp9mlim5v39aabhwaj4hizl30mfr2q-source'
+    let mut out = path.replace(STORE_PATH, "");
+
+    // Truncate the end
+    // '3bfp9mlim5v39aabhwaj4hizl30mfr2q-source' -> '3bfp9mlim5v39aabhwaj4hizl30mfr2q'
+    out.resize(32, 0);
+
+    // To String, they will always be valid.
+    out.into_string().unwrap()
 }
