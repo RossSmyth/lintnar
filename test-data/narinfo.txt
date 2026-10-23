@@ -1,0 +1,10 @@
+StorePath: /nix/store/005q6mj9lbz7vazzs6j2d68h8gda97ic-fuzzel-1.15.0
+URL: nar/15wqblfjqn4v1hd7jgk4759pr1vgs7c9gkwiniy036hzcr06fgys.nar.zst
+Compression: zstd
+FileHash: sha256:1m8va5d482pgp3m0fxfh4kg0njh237gzad4l477q20w886hgacik
+FileSize: 187461
+NarHash: sha256:15wqblfjqn4v1hd7jgk4759pr1vgs7c9gkwiniy036hzcr06fgys
+NarSize: 466024
+References: 3h6mqsv06zbafhpd4rp9s1i2bn70s8z9-cairo-1.18.4 4jqx69jjlfbxyqji7hjyi6l19bgwdfgi-wayland-1.26.0 6prhznz9mhn4021ag2wmx9vn8ssckin5-libpng-apng-1.6.59 79mk0irk0fmf69f77d9nsns004lakdgf-fcft-3.3.3 f0q1nx70zkqh630iqmc08wis2p6j9m5r-pixman-0.46.4 nhphqkv18x8fpf3flz0bsm1h554pawn7-glibc-2.44-57 q9zrpmwmzy7nq58avm9656lal00wvy54-fontconfig-2.18.3-lib qzix616ncwyil456dpcx7zjplwnx931n-libxkbcommon-1.13.2 s6709f8i3nqc51mj0m0fgikyd4xhwn14-resvg-0.48.1
+Deriver: 257ym6sz01pa3kyhdbqhcpi27sw4m0a9-fuzzel-1.15.0.drv
+Sig: cache.nixos.org-1:4u7iDdZiSx4LyKuQ1Nt1MabRRc1a4huLHGr0sv4/IbGfVzxGJDAA6qiWjqyIr4mQnPfqtsIHzMaPFG77tGRNDA==
