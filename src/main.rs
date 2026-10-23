@@ -11,12 +11,12 @@ use bstr::{ByteSlice, ByteVec, io::BufReadExt};
 use futures::{StreamExt, TryStreamExt};
 use harmonia_file_nar::{NarEvent, parse_nar};
 use hyperscan::{Builder, DatabaseRef, Matching, StreamingDatabase, StreamingMode, pattern};
-use tokio_util::{
-    bytes::Bytes,
-    io::{ReaderStream, StreamReader},
-};
+use tokio_util::{bytes::Bytes, io::ReaderStream};
 
-use crate::{logging::Diagnostic, narinfo::Compression};
+use crate::{
+    logging::Diagnostic,
+    narinfo::{Compression, get_nar},
+};
 
 mod logging;
 mod narinfo;
@@ -99,15 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let size = narinfo.get_nar_filesize();
             total_processed.fetch_add(size, Ordering::Relaxed);
 
-            // Actually get the nar archive. I want to move this to function
-            // but async types make me sad.
-            let req = client
-                .get(CACHE_SITE.to_string() + url)
-                .send()
-                .await
-                .unwrap();
-            let bytes = req.bytes_stream().map_err(std::io::Error::other);
-            let compressed_bytes = StreamReader::new(bytes);
+            let compressed_bytes = get_nar(client, url).await;
 
             // Wrap in a zstd decoder
             let decompressed_bytes = ZstdDecoder::new(compressed_bytes);

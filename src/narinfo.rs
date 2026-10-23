@@ -1,4 +1,7 @@
+use futures::TryStreamExt;
 use reqwest::{Client, Response};
+use tokio::io::AsyncBufRead;
+use tokio_util::io::StreamReader;
 
 use crate::CACHE_SITE;
 
@@ -8,6 +11,20 @@ pub async fn get_narinfo(client: &Client, digest: &str) -> Result<Response, reqw
         .get(CACHE_SITE.to_string() + digest + ".narinfo")
         .send()
         .await
+}
+
+pub async fn get_nar(client: &Client, url: &str) -> impl AsyncBufRead + use<> {
+    // Actually get the nar archive. I want to move this to function
+    // but async types make me sad.
+    let req = client
+        .get(CACHE_SITE.to_string() + url)
+        .send()
+        .await
+        .unwrap();
+    let bytes = req.bytes_stream().map_err(std::io::Error::other);
+    let compressed_bytes = StreamReader::new(bytes);
+
+    compressed_bytes
 }
 
 #[derive(Copy, Eq, PartialEq, Clone, Debug)]
