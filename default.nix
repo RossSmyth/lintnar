@@ -11,6 +11,7 @@ let
     zstd
     aws-lc
     hyperscan
+    xz
     ;
 in
 rustPlatform.buildRustPackage {
@@ -37,6 +38,7 @@ rustPlatform.buildRustPackage {
     zstd
     aws-lc
     hyperscan
+    xz
   ];
 
   env = {

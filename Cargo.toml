@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-async-compression = { version = "0.4.51", features = ["zstd", "tokio", "brotli"] }
+async-compression = { version = "0.4.51", features = ["zstd", "tokio", "xz"] }
 bstr = "1.13.1"
 futures = "0.3.34"
 harmonia-file-nar = { git = "https://github.com/nix-community/harmonia.git", version = "3.3.0" }
