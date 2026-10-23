@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The regex that is being scanned for. The FSM is shared across
     // all tasks.
     let ref scanning_db: StreamingDatabase =
-        hyperscan::pattern! { r##"BEGIN CERTIFICATE"##; SOM_LEFTMOST }
+        hyperscan::pattern! { r##"Electron/[0-9]*\.[0-9]*\.[0-9]*"##; SOM_LEFTMOST }
             .build()
             .unwrap();
 
