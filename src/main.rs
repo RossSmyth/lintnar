@@ -126,36 +126,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Buffer keeping track of the current nix store path we are looking at.
             let mut current_path = PathBuf::from(name);
 
-            while let Some(event) = parse_events.try_next().await.unwrap() {
-                match event {
-                    NarEvent::File {
-                        name,
-                        executable,
-                        reader,
-                        size,
-                    } => {
-                        if scanner(
-                            scanning_db,
-                            name.clone(),
+            loop {
+                if let Ok(Some(event)) = parse_events.try_next().await {
+                    match event {
+                        NarEvent::File {
+                            name,
                             executable,
+                            reader,
                             size,
-                            Box::new(reader),
-                        )
-                        .await
-                        .is_some()
-                        {
-                            let mut path = current_path.clone();
-                            path.push(OsStr::from_bytes(&name));
-                            nar_finds.push(path);
+                        } => {
+                            if scanner(
+                                scanning_db,
+                                name.clone(),
+                                executable,
+                                size,
+                                Box::new(reader),
+                            )
+                            .await
+                            .is_some()
+                            {
+                                let mut path = current_path.clone();
+                                path.push(OsStr::from_bytes(&name));
+                                nar_finds.push(path);
+                            }
                         }
+                        NarEvent::StartDirectory { name } => {
+                            current_path.push(OsStr::from_bytes(&name))
+                        }
+                        NarEvent::EndDirectory => {
+                            current_path.pop();
+                        }
+                        NarEvent::Symlink { .. } => continue,
                     }
-                    NarEvent::StartDirectory { name } => {
-                        current_path.push(OsStr::from_bytes(&name))
-                    }
-                    NarEvent::EndDirectory => {
-                        current_path.pop();
-                    }
-                    NarEvent::Symlink { .. } => continue,
+                } else {
+                    // TODO: Retry upon error
+                    break;
                 }
             }
 

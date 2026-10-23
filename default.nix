@@ -42,6 +42,8 @@ rustPlatform.buildRustPackage {
   ];
 
   env = {
+    CARGO_PROFILE_RELEASE_LTO = "thin";
+    CARGO_PROFILE_RELEASE_CODEGEN_UNITS = 1;
     ZSTD_SYS_USE_PKG_CONFIG = true;
     AWS_LC_SYS_USE_SYSTEM = true;
   };
