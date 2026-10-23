@@ -93,7 +93,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let compression = narinfo.get_nar_compression();
 
             // Pull the NAR down as an async stream
-            let compressed_stream = get_nar(client, url).await;
+            let compressed_stream = match get_nar(client, url).await {
+                Ok(compressed_stream) => compressed_stream,
+                Err(err) => {
+                    let _ = logging_tx
+                        .send(Diagnostic::Error(
+                            name.to_string(),
+                            format!("nar failed: '{err}'"),
+                        ))
+                        .await;
+                    return vec![];
+                }
+            };
 
             // Wrap in a decoder
             let decompressed_stream: Box<dyn AsyncRead> = match compression {

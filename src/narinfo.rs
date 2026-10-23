@@ -13,18 +13,20 @@ pub async fn get_narinfo(client: &Client, digest: &str) -> Result<Response, reqw
         .await
 }
 
-pub async fn get_nar(client: &Client, url: &str) -> impl AsyncBufRead + use<> {
+pub async fn get_nar(
+    client: &Client,
+    url: &str,
+) -> Result<impl AsyncBufRead + use<>, reqwest::Error> {
     // Actually get the nar archive. I want to move this to function
     // but async types make me sad.
-    let req = client
+    client
         .get(CACHE_SITE.to_string() + url)
         .send()
         .await
-        .unwrap();
-    let bytes = req.bytes_stream().map_err(std::io::Error::other);
-    let compressed_bytes = StreamReader::new(bytes);
-
-    compressed_bytes
+        .map(|req| {
+            let bytes = req.bytes_stream().map_err(std::io::Error::other);
+            StreamReader::new(bytes)
+        })
 }
 
 #[derive(Copy, Eq, PartialEq, Clone, Debug)]
