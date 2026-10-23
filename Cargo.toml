@@ -10,5 +10,5 @@ futures = "0.3.34"
 harmonia-file-nar = { git = "https://github.com/nix-community/harmonia.git", version = "3.3.0" }
 hyperscan = "0.3.2"
 reqwest = { version = "0.13.5", features = ["stream"] }
-tokio = { version = "1.54.1", features = ["io-std"] }
+tokio = { version = "1.54.1", features = ["io-std", "signal"] }
 tokio-util = { version = "0.7.20", features = ["io"] }
