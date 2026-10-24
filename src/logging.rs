@@ -8,8 +8,7 @@ use tokio::{
 
 pub enum Diagnostic {
     Start(String),
-    Finish(String),
-    Result(Vec<PathBuf>),
+    Finish(String, Vec<PathBuf>),
     Error(String, String),
 }
 
@@ -22,15 +21,17 @@ pub fn get_worker() -> (JoinHandle<()>, Sender<Diagnostic>) {
         let mut output = tokio::io::stdout();
         while let Some(mess) = stdout_rx.recv().await {
             let jsonl;
-            let mut exit = false;
             match mess {
                 Diagnostic::Start(name) => {
                     // { message: "start", path: "..." }
                     jsonl = format!(r##"{{"message": "start", "path": "{}"}}"##, name);
                 }
-                Diagnostic::Finish(name) => {
+                Diagnostic::Finish(name, paths) => {
                     // { message: "start", path: "..." }
-                    jsonl = format!(r##"{{"message": "finish", "path": "{}"}}"##, name);
+                    jsonl = format!(
+                        r##"{{"message": "finish", "path": "{}", "matches": {:?}}}"##,
+                        name, paths
+                    );
                 }
                 Diagnostic::Error(name, message) => {
                     // { message: "error", "path": "...", "error": "..." }
@@ -39,16 +40,8 @@ pub fn get_worker() -> (JoinHandle<()>, Sender<Diagnostic>) {
                         name, message
                     );
                 }
-                Diagnostic::Result(output) => {
-                    // { message: "error", "path": "...", "error": "..." }
-                    jsonl = format!(r##"{{"message": "result", "matches": {:?} }}"##, output);
-                    exit = true;
-                }
             }
             let _ = output.write_all((jsonl + "\n").as_bytes()).await;
-            if exit {
-                return;
-            }
         }
     });
 

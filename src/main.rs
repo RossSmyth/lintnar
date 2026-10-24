@@ -36,7 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // All arguments should be store paths.
     let store_paths = stdin.byte_lines().flatten();
 
-    let (logging_worker, ref logging_tx) = logging::get_worker();
+    let (_, ref logging_tx) = logging::get_worker();
 
     // The regex that is being scanned for. The FSM is shared across
     // all tasks.
@@ -179,11 +179,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            let _ = logging_tx.send(Diagnostic::Finish(name.to_string())).await;
-            nar_finds
+            let _ = logging_tx
+                .send(Diagnostic::Finish(name.to_string(), nar_finds))
+                .await;
+
+            Vec::<()>::new()
         })
-        .buffer_unordered(std::thread::available_parallelism().unwrap().get())
-        .fuse();
+        .buffer_unordered(std::thread::available_parallelism().unwrap().get());
 
     // Remember, this is what actually drives the whole thing.
     // the call to collect runs the above processing
@@ -192,7 +194,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut signals = futures::future::select_all(signals).fuse();
 
     let start = Instant::now();
-    let mut output = vec![];
     let mut total_paths = 0u64;
 
     loop {
@@ -200,11 +201,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             biased;
             data = found.next() => {
                 match data {
-                    Some(data) => {
+                    Some(_) => {
                         total_paths += 1;
-                        if !data.is_empty() {
-                            output.extend(data)
-                        }
                     }
                     None => break,
                 }
@@ -212,10 +210,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             _ = &mut signals => break,
         }
     }
-
-    // Final result
-    let _ = logging_tx.send(Diagnostic::Result(output)).await;
-    let _ = logging_worker.await; // Must await or else the process usually shuts down before the results are printed
 
     let duration = Instant::now() - start;
     eprintln!(
