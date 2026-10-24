@@ -1,0 +1,10 @@
+/nix/store/zzygzkn0v64v1ibs76pzgaq3f2qsdd4k-cargo-toml-lint-0.1.1
+/nix/store/zzyhi39bhfw9ilff4xnvffvl7blf4s6n-python3.14-pytest-voluptuous-1.2.0
+/nix/store/zzymz7smnfwddcnagrnp1qldzkzfk3k6-python3.14-keymap-drawer-0.23.0-dist
+/nix/store/zzyp2v6jkm8pqfs74j8v5r5sz3q6z5w8-python3.14-mypy-boto3-serverlessrepo-1.43.0
+/nix/store/zzyrfrsn2k64j5mvjy71lj4gfcw0h713-python3.14-escapism-1.1.0
+/nix/store/zzz3401wl43lrn542arg61dj886hzv1y-perl5.42.3-Data-Validate-IP-0.31
+/nix/store/zzz78r91crxba1773wmcdm1k7706bgsw-ekg-wai-0.1.2.0
+/nix/store/zzz91r2wkslb46yd2x9qysnq5rsacf9m-tickrs-0.15.0
+/nix/store/zzzag9kdscc0m6vln00lx7z20i01xvxl-perl5.42.3-Mail-Mbox-MessageParser-1.5111
+/nix/store/zzzapk9zp8h2rfil0x9z6f1jw362jsna-shellcheck-0.11.0-man
