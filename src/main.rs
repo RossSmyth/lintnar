@@ -158,7 +158,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 Box::new(reader),
                             )
                             .await
-                            .is_some()
                             {
                                 let mut path = current_path.clone();
                                 path.push(OsStr::from_bytes(&name));
@@ -232,14 +231,16 @@ async fn scanner(
     executable: bool,
     _: u64,
     reader: Box<dyn tokio::io::AsyncBufRead>,
-) -> Option<Vec<usize>> {
+) -> bool {
+    use hyperscan::HsError;
+
     if !executable {
-        return None;
+        return false;
     }
 
     let mut stream = ReaderStream::new(Box::into_pin(reader));
 
-    let mut found = Vec::new();
+    let mut found = false;
 
     // Allocate the buffer needed for scanning in this task.
     let scratch = db.alloc_scratch().unwrap();
@@ -247,20 +248,25 @@ async fn scanner(
 
     // What to do when a match is found. Current just store the index of the start
     // of the match
-    let mut cb = |_, start, _, _| {
-        found.push(start as usize);
+    let mut cb = |_, _, _, _| {
+        found = true;
 
-        Matching::Continue
+        Matching::Terminate
     };
 
     // Scan
     while let Some(chunk) = stream.next().await {
-        scanner.scan(chunk.unwrap(), &scratch, &mut cb).unwrap()
+        match scanner.scan(chunk.unwrap(), &scratch, &mut cb) {
+            Ok(()) => (),
+            Err(hyperscan::Error::Hyperscan(HsError::ScanTerminated)) => break,
+            // What to do?
+            Err(_) => break,
+        }
     }
 
     scanner.close(&scratch, cb).unwrap();
 
-    if !found.is_empty() { Some(found) } else { None }
+    found
 }
 
 /// Nix store path to the drv digest string.
