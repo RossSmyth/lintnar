@@ -8,8 +8,7 @@ Works well. On my good computer it took 2 hours and 15 minutes to scan all NAR a
 
 Pass store paths via stdin.
 
-1. `curl curl -sfL https://channels.nixos.org/nixos-unstable/store-paths.xz | xz -d > store-paths.txt`
-2. `cat store-paths.txt | lintnar`
+- `curl curl -sfL https://channels.nixos.org/nixos-unstable/store-paths.xz | xz -d | lintnar`
 
 How I use it:
 
@@ -23,8 +22,8 @@ You can use options like `-o cat` to use this in pipelines. I'm not sure if you 
 
 ## TODO
 
-* Better error handling
-* Retry upon network failure
-* Actually capture the match
-* Output to sqlite db
-* Add nixpkgs attribute correlation to sqlite db
+* Better error handling (currently panics kill the current run without any output)
+* Retry upon network failure (currently just silently skips the store path)
+* Actually capture the match (currently just outputs the file path)
+* Output to sqlite db (currently just jsonl which can be annoying to work with)
+* Add nixpkgs attribute correlation to sqlite db (good to know)
