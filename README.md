@@ -24,6 +24,5 @@ You can use options like `-o cat` to use this in pipelines. I'm not sure if you 
 
 * Better error handling (currently panics kill the current run without any output)
 * Retry upon network failure (currently just silently skips the store path)
-* Actually capture the match (currently just outputs the file path)
 * Output to sqlite db (currently just jsonl which can be annoying to work with)
 * Add nixpkgs attribute correlation to sqlite db (good to know)
