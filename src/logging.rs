@@ -20,27 +20,26 @@ pub fn get_worker() -> (JoinHandle<()>, Sender<Diagnostic>) {
     let stdout_worker = tokio::spawn(async move {
         let mut output = tokio::io::stdout();
         while let Some(mess) = stdout_rx.recv().await {
-            let jsonl;
-            match mess {
+            let jsonl = match mess {
                 Diagnostic::Start(name) => {
                     // { message: "start", path: "..." }
-                    jsonl = format!(r##"{{"message": "start", "path": "{}"}}"##, name);
+                    format!(r##"{{"message": "start", "path": "{}"}}"##, name)
                 }
                 Diagnostic::Finish(name, paths) => {
                     // { message: "start", path: "..." }
-                    jsonl = format!(
+                    format!(
                         r##"{{"message": "finish", "path": "{}", "matches": {:?}}}"##,
                         name, paths
-                    );
+                    )
                 }
                 Diagnostic::Error(name, message) => {
                     // { message: "error", "path": "...", "error": "..." }
-                    jsonl = format!(
+                    format!(
                         r##"{{"message": "error", "path": "{}", "error": "{}"}}"##,
                         name, message
-                    );
+                    )
                 }
-            }
+            };
             let _ = output.write_all((jsonl + "\n").as_bytes()).await;
         }
     });
