@@ -1,0 +1,11 @@
+[Unit]
+Description=Lintnar working socket
+Before=multi-user.target
+
+[Socket]
+ListenSequentialPacket=/run/lintnar/socket.sock
+SocketMode=0660
+DirectoryMode=750
+Accept=yes
+MaxConnections=1
+SocketGroup=lintnar
